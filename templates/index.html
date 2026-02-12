@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Push to Talk</title>
+    <style>
+        :root {
+            --bg: #0f0f1a;
+            --surface: #1a1a2e;
+            --surface-2: #222240;
+            --border: #2a2a4a;
+            --text: #e8e8f0;
+            --text-dim: #8888aa;
+            --green: #2ecc71;
+            --green-glow: rgba(46, 204, 113, 0.3);
+            --red: #e74c3c;
+            --red-glow: rgba(231, 76, 60, 0.3);
+            --amber: #f39c12;
+            --amber-glow: rgba(243, 156, 18, 0.3);
+            --accent: #6c5ce7;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 640px;
+            margin: 0 auto;
+            padding: 24px 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header h1 .mic-icon {
+            font-size: 24px;
+        }
+
+        .connection-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-dim);
+            background: var(--surface);
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .connection-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .connection-dot.disconnected {
+            background: var(--red);
+        }
+
+        /* Status Card */
+        .status-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px 24px;
+            text-align: center;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .status-indicator {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: background 0.3s ease;
+        }
+
+        .status-indicator svg {
+            width: 36px;
+            height: 36px;
+            fill: white;
+        }
+
+        /* Idle state */
+        .status-indicator.idle {
+            background: var(--green);
+            box-shadow: 0 0 30px var(--green-glow);
+        }
+
+        /* Recording state - pulse animation */
+        .status-indicator.recording {
+            background: var(--red);
+            box-shadow: 0 0 30px var(--red-glow);
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 30px var(--red-glow); }
+            50% { transform: scale(1.08); box-shadow: 0 0 50px var(--red-glow); }
+        }
+
+        /* Transcribing state - spinner */
+        .status-indicator.transcribing {
+            background: var(--amber);
+            box-shadow: 0 0 30px var(--amber-glow);
+        }
+
+        .status-indicator.transcribing::after {
+            content: "";
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            border: 3px solid transparent;
+            border-top-color: var(--amber);
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .status-label {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            transition: color 0.3s ease;
+        }
+
+        .status-sublabel {
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        /* Settings row */
+        .settings-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .setting-card {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .setting-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .setting-value {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Mic selector */
+        .mic-selector {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .mic-selector label {
+            display: block;
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .mic-selector select {
+            width: 100%;
+            background: var(--surface-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238888aa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+        }
+
+        .mic-selector select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* History */
+        .history-section {
+            margin-top: 8px;
+        }
+
+        .history-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .history-header h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .history-count {
+            font-size: 12px;
+            color: var(--text-dim);
+            background: var(--surface-2);
+            padding: 2px 10px;
+            border-radius: 10px;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .history-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .history-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .history-time {
+            font-weight: 500;
+        }
+
+        .history-duration {
+            background: var(--surface-2);
+            padding: 1px 8px;
+            border-radius: 8px;
+        }
+
+        .history-text {
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .history-empty {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-dim);
+            background: var(--surface);
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+        }
+
+        .history-empty .empty-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+
+        .history-empty p {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .history-empty kbd {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+            font-family: inherit;
+        }
+
+        /* Copy button */
+        .copy-btn {
+            float: right;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-dim);
+            font-size: 11px;
+            padding: 3px 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .copy-btn:hover {
+            color: var(--text);
+            border-color: var(--text-dim);
+        }
+
+        .copy-btn.copied {
+            color: var(--green);
+            border-color: var(--green);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <span class="mic-icon">&#127908;</span>
+                Push to Talk
+            </h1>
+            <div class="connection-badge">
+                <div class="connection-dot" id="connectionDot"></div>
+                <span id="connectionText">Connected</span>
+            </div>
+        </div>
+
+        <!-- Status Card -->
+        <div class="status-card">
+            <div class="status-indicator idle" id="statusIndicator">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z"/>
+                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                </svg>
+            </div>
+            <div class="status-label" id="statusLabel">Ready</div>
+            <div class="status-sublabel" id="statusSublabel">Hold <kbd style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px;">Option/Alt</kbd> to record</div>
+        </div>
+
+        <!-- Settings -->
+        <div class="settings-row">
+            <div class="setting-card">
+                <div class="setting-label">Model</div>
+                <div class="setting-value" id="modelName">base</div>
+            </div>
+            <div class="setting-card">
+                <div class="setting-label">Hotkey</div>
+                <div class="setting-value" id="hotkeyName">Option / Alt</div>
+            </div>
+            <div class="setting-card">
+                <div class="setting-label">Language</div>
+                <div class="setting-value" id="languageName">en</div>
+            </div>
+        </div>
+
+        <!-- Microphone Selector -->
+        <div class="mic-selector">
+            <label for="micSelect">Microphone</label>
+            <select id="micSelect">
+                <option value="null">System Default</option>
+            </select>
+        </div>
+
+        <!-- Transcription History -->
+        <div class="history-section">
+            <div class="history-header">
+                <h2>Transcriptions</h2>
+                <span class="history-count" id="historyCount">0</span>
+            </div>
+            <div id="historyList">
+                <div class="history-empty" id="historyEmpty">
+                    <div class="empty-icon">&#127908;</div>
+                    <p>No transcriptions yet.<br>Hold <kbd>Option/Alt</kbd> to record, release to transcribe.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusIndicator = document.getElementById("statusIndicator");
+        const statusLabel = document.getElementById("statusLabel");
+        const statusSublabel = document.getElementById("statusSublabel");
+        const connectionDot = document.getElementById("connectionDot");
+        const connectionText = document.getElementById("connectionText");
+        const micSelect = document.getElementById("micSelect");
+        const historyList = document.getElementById("historyList");
+        const historyEmpty = document.getElementById("historyEmpty");
+        const historyCount = document.getElementById("historyCount");
+        const modelName = document.getElementById("modelName");
+        const languageName = document.getElementById("languageName");
+
+        let transcriptionCount = 0;
+
+        // ─── State updates ────────────────────────────────────────────────
+
+        function updateState(state) {
+            statusIndicator.className = "status-indicator " + state;
+
+            if (state === "idle") {
+                statusLabel.textContent = "Ready";
+                statusSublabel.innerHTML = 'Hold <kbd style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px;">Option/Alt</kbd> to record';
+            } else if (state === "recording") {
+                statusLabel.textContent = "Recording...";
+                statusSublabel.textContent = "Release the key to transcribe";
+            } else if (state === "transcribing") {
+                statusLabel.textContent = "Transcribing...";
+                statusSublabel.textContent = "Processing your speech";
+            }
+        }
+
+        // ─── History ──────────────────────────────────────────────────────
+
+        function addTranscription(entry) {
+            historyEmpty.style.display = "none";
+            transcriptionCount++;
+            historyCount.textContent = transcriptionCount;
+
+            const item = document.createElement("div");
+            item.className = "history-item";
+            item.innerHTML =
+                '<div class="history-meta">' +
+                    '<span class="history-time">' + entry.timestamp + '</span>' +
+                    '<span class="history-duration">' + entry.duration_s + 's</span>' +
+                    '<button class="copy-btn" onclick="copyText(this, ' + JSON.stringify(JSON.stringify(entry.text)) + ')">Copy</button>' +
+                '</div>' +
+                '<div class="history-text">' + escapeHtml(entry.text) + '</div>';
+
+            // Insert at top
+            historyList.insertBefore(item, historyList.firstChild);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function copyText(btn, text) {
+            navigator.clipboard.writeText(text).then(function() {
+                btn.textContent = "Copied!";
+                btn.classList.add("copied");
+                setTimeout(function() {
+                    btn.textContent = "Copy";
+                    btn.classList.remove("copied");
+                }, 1500);
+            });
+        }
+
+        // ─── Microphone selector ──────────────────────────────────────────
+
+        function loadDevices() {
+            fetch("/api/devices")
+                .then(function(r) { return r.json(); })
+                .then(function(devices) {
+                    micSelect.innerHTML = '<option value="null">System Default</option>';
+                    devices.forEach(function(d) {
+                        var opt = document.createElement("option");
+                        opt.value = d.index;
+                        opt.textContent = d.name;
+                        micSelect.appendChild(opt);
+                    });
+                    // Fetch current status to select the right device
+                    return fetch("/api/status");
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(status) {
+                    micSelect.value = status.device_index === null ? "null" : status.device_index;
+                    modelName.textContent = status.model;
+                    languageName.textContent = status.language || "auto";
+                });
+        }
+
+        micSelect.addEventListener("change", function() {
+            var idx = micSelect.value === "null" ? null : parseInt(micSelect.value);
+            fetch("/api/device", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ index: idx }),
+            });
+        });
+
+        // ─── Load history ─────────────────────────────────────────────────
+
+        function loadHistory() {
+            fetch("/api/history")
+                .then(function(r) { return r.json(); })
+                .then(function(entries) {
+                    if (entries.length > 0) {
+                        // Show newest first
+                        entries.reverse().forEach(function(entry) {
+                            addTranscription(entry);
+                        });
+                    }
+                });
+        }
+
+        // ─── SSE connection ───────────────────────────────────────────────
+
+        function connectSSE() {
+            var es = new EventSource("/events");
+
+            es.addEventListener("state", function(e) {
+                var data = JSON.parse(e.data);
+                updateState(data.state);
+            });
+
+            es.addEventListener("transcription", function(e) {
+                var data = JSON.parse(e.data);
+                addTranscription(data);
+            });
+
+            es.addEventListener("device", function(e) {
+                var data = JSON.parse(e.data);
+                micSelect.value = data.index === null ? "null" : data.index;
+            });
+
+            es.onopen = function() {
+                connectionDot.classList.remove("disconnected");
+                connectionText.textContent = "Connected";
+            };
+
+            es.onerror = function() {
+                connectionDot.classList.add("disconnected");
+                connectionText.textContent = "Reconnecting...";
+            };
+        }
+
+        // ─── Init ─────────────────────────────────────────────────────────
+
+        loadDevices();
+        loadHistory();
+        connectSSE();
+    </script>
+</body>
+</html>
