@@ -433,14 +433,26 @@ def main() -> None:
     print("=" * 50)
     print()
 
-    # Set macOS process name so it shows nicely in the Dock / Activity Monitor
+    # Set macOS Dock icon and app name so it's recognizable
     if platform.system() == "Darwin":
         try:
+            from AppKit import NSApplication, NSImage
             from Foundation import NSBundle
+
+            # Set bundle name (shows in Activity Monitor / menu bar)
             bundle = NSBundle.mainBundle()
             info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
             if info:
                 info["CFBundleName"] = APP_NAME
+
+            # Set Dock icon to our green mic icon
+            app = NSApplication.sharedApplication()
+            icon_img = create_mic_icon(size=256)
+            # Convert PIL image to NSImage via PNG bytes
+            buf = io.BytesIO()
+            icon_img.save(buf, format="PNG")
+            ns_image = NSImage.alloc().initWithData_(buf.getvalue())
+            app.setApplicationIconImage_(ns_image)
         except ImportError:
             pass  # PyObjC not installed; tray title still works
 
