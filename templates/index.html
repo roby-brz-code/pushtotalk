@@ -83,13 +83,25 @@
         /* Status Card */
         .status-card {
             background: var(--surface);
-            border: 1px solid var(--border);
+            border: 2px solid var(--border);
             border-radius: 16px;
             padding: 40px 24px;
             text-align: center;
             margin-bottom: 20px;
             position: relative;
             overflow: hidden;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+        }
+
+        .status-card.recording {
+            border-color: var(--red);
+            box-shadow: 0 0 40px var(--red-glow), inset 0 0 40px rgba(231, 76, 60, 0.05);
+            background: linear-gradient(to bottom, rgba(231, 76, 60, 0.08), var(--surface));
+        }
+
+        .status-card.transcribing {
+            border-color: var(--amber);
+            box-shadow: 0 0 30px var(--amber-glow);
         }
 
         .status-indicator {
@@ -119,13 +131,20 @@
         /* Recording state - pulse animation */
         .status-indicator.recording {
             background: var(--red);
-            box-shadow: 0 0 30px var(--red-glow);
+            box-shadow: 0 0 40px var(--red-glow);
             animation: pulse 1s ease-in-out infinite;
+            width: 100px;
+            height: 100px;
+        }
+
+        .status-indicator.recording svg {
+            width: 44px;
+            height: 44px;
         }
 
         @keyframes pulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 30px var(--red-glow); }
-            50% { transform: scale(1.08); box-shadow: 0 0 50px var(--red-glow); }
+            0%, 100% { transform: scale(1); box-shadow: 0 0 40px var(--red-glow); }
+            50% { transform: scale(1.12); box-shadow: 0 0 70px var(--red-glow); }
         }
 
         /* Transcribing state - spinner */
@@ -532,12 +551,14 @@
         var stepASR = document.getElementById("stepASR");
         var stepCleanup = document.getElementById("stepCleanup");
 
+        var statusCard = document.querySelector(".status-card");
         var transcriptionCount = 0;
 
         // ─── State updates ────────────────────────────────────────────────
 
         function updateState(state) {
             statusIndicator.className = "status-indicator " + state;
+            statusCard.className = "status-card " + state;
 
             if (state === "idle") {
                 statusLabel.textContent = "Ready";
@@ -545,7 +566,7 @@
                 pipelineSteps.classList.remove("visible");
                 resetPipeline();
             } else if (state === "recording") {
-                statusLabel.textContent = "Recording...";
+                statusLabel.textContent = "Recording — Speak Now";
                 statusSublabel.textContent = "Release the key to transcribe";
                 pipelineSteps.classList.remove("visible");
                 resetPipeline();

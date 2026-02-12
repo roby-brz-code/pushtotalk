@@ -12,6 +12,7 @@ Features:
 - Custom dictionary for technical terms
 """
 
+import collections
 import datetime
 import io
 import json
@@ -21,14 +22,13 @@ import pathlib
 import platform
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 import wave
-
-import subprocess
 
 import numpy as np
 import pyautogui
@@ -49,6 +49,7 @@ HOTKEY = pynput_keyboard.Key.alt_l  # macOS Option key; change as desired
 WHISPER_MODEL = "base.en"   # tiny.en | base.en | small.en | medium.en | large
 SAMPLE_RATE = 16000         # 16 kHz mono
 LANGUAGE = "en"             # Set to None for auto-detect
+PRE_BUFFER_MS = 500         # Capture audio before key press to avoid cutting off first words
 LOG_FILE = "transcription_log.txt"  # Set to None to disable logging
 WEB_PORT = 8528             # Web UI port
 
@@ -64,7 +65,7 @@ DICTIONARY_FILE = pathlib.Path.home() / ".pushtotalk" / "dictionary.txt"
 model = None
 recording = False
 audio_frames = []
-stream = None
+persistent_stream = None    # Always-on mic stream for zero-latency recording
 tray_icon = None
 key_listener = None
 selected_device = None      # None = system default; set to device index to override
@@ -74,6 +75,11 @@ sse_clients = []            # [queue.Queue] for SSE connections
 record_start_time = None    # When recording started
 custom_dictionary = []      # List of custom terms from dictionary file
 last_typed_text = None      # For "scratch that" voice command
+
+# Pre-buffer: rolling window of audio captured BEFORE key press
+_BLOCK_SIZE = 1024
+_PRE_BUFFER_CHUNKS = max(1, int(PRE_BUFFER_MS / 1000 * SAMPLE_RATE / _BLOCK_SIZE) + 1)
+pre_buffer = collections.deque(maxlen=_PRE_BUFFER_CHUNKS)
 
 # ─── Flask app ──────────────────────────────────────────────────────────────────
 
@@ -553,6 +559,8 @@ def set_input_device(index) -> None:
         name = sd.query_devices(index)["name"]
         log("🎙️", f"Microphone set to: {name}")
     broadcast_event("device", {"index": index, "name": name})
+    # Restart persistent stream with the new device
+    start_persistent_stream()
 
 
 def _update_tray_icon(icon_fn):
@@ -564,48 +572,62 @@ def _update_tray_icon(icon_fn):
             pass
 
 
-def start_recording() -> None:
-    """Begin capturing audio from the selected microphone."""
-    global recording, audio_frames, stream, record_start_time
+def _audio_callback(indata, frames, time_info, status):
+    """Shared audio callback: feeds pre-buffer when idle, recording buffer when active."""
+    if status:
+        log("⚠️", f"Audio status: {status}")
     if recording:
-        return
-
-    audio_frames = []
-    recording = True
-    record_start_time = time.time()
-    set_state("recording")
-    beep(frequency=1000, duration_ms=60)
-
-    def callback(indata, frames, time_info, status):
-        if status:
-            log("⚠️", f"Audio status: {status}")
         audio_frames.append(indata.copy())
+    else:
+        pre_buffer.append(indata.copy())
 
-    stream = sd.InputStream(
+
+def start_persistent_stream() -> None:
+    """Start (or restart) the always-on mic stream for pre-buffering and recording."""
+    global persistent_stream
+    if persistent_stream is not None:
+        try:
+            persistent_stream.stop()
+            persistent_stream.close()
+        except Exception:
+            pass
+    persistent_stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
         dtype="float32",
         device=selected_device,
-        callback=callback,
+        callback=_audio_callback,
+        blocksize=_BLOCK_SIZE,
     )
-    stream.start()
+    persistent_stream.start()
+    log("🎙️", f"Mic stream started (pre-buffer: {PRE_BUFFER_MS}ms)")
+
+
+def start_recording() -> None:
+    """Begin capturing audio. Grabs pre-buffer so first words aren't lost."""
+    global recording, audio_frames, record_start_time
+    if recording:
+        return
+
+    # Grab the pre-buffer (audio from BEFORE key press) then start recording
+    audio_frames = list(pre_buffer)
+    pre_buffer.clear()
+    recording = True
+    record_start_time = time.time()
+    set_state("recording")
+    beep(frequency=1000, duration_ms=60)
     log("🔴", "Recording … (release key to stop)")
     _update_tray_icon(create_recording_icon)
 
 
 def stop_recording_and_transcribe() -> None:
     """Stop recording, transcribe, and type the result."""
-    global recording, stream
+    global recording
     if not recording:
         return
 
     recording = False
     duration_s = time.time() - record_start_time if record_start_time else 0
-
-    if stream is not None:
-        stream.stop()
-        stream.close()
-        stream = None
 
     beep(frequency=600, duration_ms=60)
     set_state("transcribing")
@@ -924,6 +946,9 @@ def main() -> None:
 
     # Load Whisper model
     load_model()
+
+    # Start persistent mic stream (always-on for pre-buffering)
+    start_persistent_stream()
 
     # Register global hotkey
     setup_hotkey()
