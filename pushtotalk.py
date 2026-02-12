@@ -28,9 +28,14 @@ import urllib.error
 import urllib.request
 import wave
 
+import subprocess
+
 import numpy as np
 import pyautogui
 import pyperclip
+
+# Disable pyautogui's default 0.1s pause between actions
+pyautogui.PAUSE = 0
 import pystray
 import sounddevice as sd
 from flask import Flask, Response, jsonify, render_template, request
@@ -741,7 +746,7 @@ def _transcribe_local(audio: np.ndarray) -> str:
 
 def _type_text(text: str) -> None:
     """Paste text into the currently focused field via clipboard for instant output."""
-    time.sleep(0.15)
+    time.sleep(0.05)
     try:
         old_clipboard = None
         try:
@@ -750,15 +755,18 @@ def _type_text(text: str) -> None:
             pass
 
         pyperclip.copy(text)
-        time.sleep(0.05)
 
         if platform.system() == "Darwin":
-            pyautogui.hotkey("command", "v")
+            # Use native AppleScript for instant, reliable paste on macOS
+            subprocess.run(
+                ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
+                timeout=2,
+            )
         else:
             pyautogui.hotkey("ctrl", "v")
 
         if old_clipboard is not None:
-            time.sleep(0.3)
+            time.sleep(0.2)
             try:
                 pyperclip.copy(old_clipboard)
             except Exception:
