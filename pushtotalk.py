@@ -28,6 +28,7 @@ from scipy.io.wavfile import write as wav_write
 
 # ─── Configuration ──────────────────────────────────────────────────────────────
 
+APP_NAME = "Push to Talk"
 HOTKEY = pynput_keyboard.Key.alt_l  # macOS Option key; change to Key.alt_r, Key.cmd, etc. as desired
 WHISPER_MODEL = "base"      # tiny | base | small | medium | large
 SAMPLE_RATE = 16000         # 16 kHz mono
@@ -42,6 +43,7 @@ audio_frames = []
 stream = None
 tray_icon = None
 key_listener = None
+selected_device = None  # None = system default; set to device index to override
 
 # ─── Utility helpers ────────────────────────────────────────────────────────────
 
@@ -102,46 +104,56 @@ def send_notification(title: str, message: str) -> None:
 # ─── Microphone icon generation ─────────────────────────────────────────────────
 
 
-def create_mic_icon(color: str = "white", bg: str = "black", size: int = 64) -> Image.Image:
-    """Generate a simple microphone icon with Pillow."""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    cx, cy = size // 2, size // 2
-    # Mic body (rounded rect approximated by ellipse + rect)
-    body_w, body_h = size // 4, size // 3
+def _draw_mic(draw, cx, cy, size, mic_color="white"):
+    """Draw a microphone shape onto an ImageDraw context."""
+    # Mic body
+    body_w, body_h = size // 5, size * 3 // 10
+    body_top = cy - body_h
+    body_bot = cy + body_h // 4
     draw.rounded_rectangle(
-        [cx - body_w, cy - body_h, cx + body_w, cy + body_h // 3],
+        [cx - body_w, body_top, cx + body_w, body_bot],
         radius=body_w,
-        fill=color,
+        fill=mic_color,
     )
     # Arc around mic
-    arc_w = body_w + size // 10
-    arc_top = cy - body_h + size // 10
-    arc_bot = cy + body_h // 3 + size // 8
+    arc_w = body_w + size // 8
+    arc_top = body_top + size // 10
+    arc_bot = body_bot + size // 8
+    lw = max(2, size // 16)
     draw.arc(
         [cx - arc_w, arc_top, cx + arc_w, arc_bot],
         start=0, end=180,
-        fill=color,
-        width=max(2, size // 20),
+        fill=mic_color,
+        width=lw,
     )
     # Stand
     stand_top = arc_bot
-    stand_bot = stand_top + size // 6
-    draw.line([cx, stand_top, cx, stand_bot], fill=color, width=max(2, size // 20))
+    stand_bot = stand_top + size // 7
+    draw.line([cx, stand_top, cx, stand_bot], fill=mic_color, width=lw)
     # Base
     base_w = size // 6
-    draw.line([cx - base_w, stand_bot, cx + base_w, stand_bot], fill=color, width=max(2, size // 20))
+    draw.line([cx - base_w, stand_bot, cx + base_w, stand_bot], fill=mic_color, width=lw)
 
+
+def create_mic_icon(size: int = 64) -> Image.Image:
+    """Generate a green-circle mic icon — clearly visible in the menu bar / tray."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    # Green circle background
+    pad = 2
+    draw.ellipse([pad, pad, size - pad, size - pad], fill=(46, 204, 113))
+    _draw_mic(draw, size // 2, size // 2, size, mic_color="white")
     return img
 
 
 def create_recording_icon(size: int = 64) -> Image.Image:
-    """Generate a red-circle recording icon."""
+    """Generate a red-circle mic icon to indicate active recording."""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    margin = size // 6
-    draw.ellipse([margin, margin, size - margin, size - margin], fill="red")
+    # Red circle background
+    pad = 2
+    draw.ellipse([pad, pad, size - pad, size - pad], fill=(231, 76, 60))
+    _draw_mic(draw, size // 2, size // 2, size, mic_color="white")
     return img
 
 
@@ -159,8 +171,29 @@ def load_model() -> None:
 # ─── Recording ───────────────────────────────────────────────────────────────────
 
 
+def get_input_devices() -> list[dict]:
+    """Return a list of available audio input devices."""
+    devices = sd.query_devices()
+    inputs = []
+    for i, d in enumerate(devices):
+        if d["max_input_channels"] > 0:
+            inputs.append({"index": i, "name": d["name"], "channels": d["max_input_channels"]})
+    return inputs
+
+
+def set_input_device(index) -> None:
+    """Set the active input device by index (None for system default)."""
+    global selected_device
+    selected_device = index
+    if index is None:
+        log("🎙️", "Microphone set to system default")
+    else:
+        name = sd.query_devices(index)["name"]
+        log("🎙️", f"Microphone set to: {name}")
+
+
 def start_recording() -> None:
-    """Begin capturing audio from the default microphone."""
+    """Begin capturing audio from the selected microphone."""
     global recording, audio_frames, stream
     if recording:
         return
@@ -178,6 +211,7 @@ def start_recording() -> None:
         samplerate=SAMPLE_RATE,
         channels=1,
         dtype="float32",
+        device=selected_device,
         callback=callback,
     )
     stream.start()
@@ -332,22 +366,59 @@ def on_quit(icon, item) -> None:
     os._exit(0)
 
 
-def setup_tray() -> None:
-    """Create and run the system-tray icon (blocks the calling thread)."""
-    global tray_icon
+def _build_mic_menu() -> pystray.Menu:
+    """Build a submenu listing all input devices for microphone selection."""
+    devices = get_input_devices()
 
-    menu = pystray.Menu(
-        pystray.MenuItem(f"Hotkey: Option/Alt (hold to talk)", None, enabled=False),
+    def make_setter(idx):
+        def on_click(icon, item):
+            set_input_device(idx)
+            # Rebuild menu to update the check marks
+            icon.menu = _build_tray_menu()
+        return on_click
+
+    items = [
+        pystray.MenuItem(
+            "System Default",
+            make_setter(None),
+            checked=lambda item: selected_device is None,
+        )
+    ]
+    for d in devices:
+        idx = d["index"]
+        items.append(
+            pystray.MenuItem(
+                d["name"],
+                make_setter(idx),
+                checked=lambda item, _idx=idx: selected_device == _idx,
+            )
+        )
+    return pystray.Menu(*items)
+
+
+def _build_tray_menu() -> pystray.Menu:
+    """Build the full tray menu."""
+    return pystray.Menu(
+        pystray.MenuItem(APP_NAME, None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Hotkey: Option/Alt (hold to talk)", None, enabled=False),
         pystray.MenuItem(f"Model: {WHISPER_MODEL}", None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Microphone", _build_mic_menu()),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", on_quit),
     )
 
+
+def setup_tray() -> None:
+    """Create and run the system-tray icon (blocks the calling thread)."""
+    global tray_icon
+
     tray_icon = pystray.Icon(
-        "PushToTalk",
+        APP_NAME,
         icon=create_mic_icon(),
-        title="Push-to-Talk",
-        menu=menu,
+        title=APP_NAME,
+        menu=_build_tray_menu(),
     )
 
     tray_icon.run()
@@ -358,9 +429,21 @@ def setup_tray() -> None:
 
 def main() -> None:
     print("=" * 50)
-    print("  Push-to-Talk — Voice to Text")
+    print(f"  {APP_NAME} — Voice to Text")
     print("=" * 50)
     print()
+
+    # Set macOS process name so it shows nicely in the Dock / Activity Monitor
+    if platform.system() == "Darwin":
+        try:
+            from Foundation import NSBundle
+            bundle = NSBundle.mainBundle()
+            info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+            if info:
+                info["CFBundleName"] = APP_NAME
+        except ImportError:
+            pass  # PyObjC not installed; tray title still works
+
 
     # Load Whisper model (may take a moment on first run)
     load_model()
