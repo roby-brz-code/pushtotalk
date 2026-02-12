@@ -16,7 +16,6 @@ import threading
 import time
 import wave
 
-import keyboard
 import numpy as np
 import pyautogui
 import pyperclip
@@ -24,11 +23,12 @@ import pystray
 import sounddevice as sd
 import whisper
 from PIL import Image, ImageDraw
+from pynput import keyboard as pynput_keyboard
 from scipy.io.wavfile import write as wav_write
 
 # ─── Configuration ──────────────────────────────────────────────────────────────
 
-HOTKEY = "alt"              # macOS Option key = "alt"; use "alt" on Windows/Linux too
+HOTKEY = pynput_keyboard.Key.alt_l  # macOS Option key; change to Key.alt_r, Key.cmd, etc. as desired
 WHISPER_MODEL = "base"      # tiny | base | small | medium | large
 SAMPLE_RATE = 16000         # 16 kHz mono
 LANGUAGE = "en"             # Set to None for auto-detect
@@ -41,6 +41,7 @@ recording = False
 audio_frames = []
 stream = None
 tray_icon = None
+key_listener = None
 
 # ─── Utility helpers ────────────────────────────────────────────────────────────
 
@@ -302,9 +303,20 @@ def _type_text(text: str) -> None:
 
 
 def setup_hotkey() -> None:
-    """Register global hotkey press/release handlers."""
-    keyboard.on_press_key(HOTKEY, lambda e: start_recording(), suppress=False)
-    keyboard.on_release_key(HOTKEY, lambda e: stop_recording_and_transcribe(), suppress=False)
+    """Register global hotkey press/release handlers using pynput."""
+    global key_listener
+
+    def on_press(key):
+        if key == HOTKEY:
+            start_recording()
+
+    def on_release(key):
+        if key == HOTKEY:
+            stop_recording_and_transcribe()
+
+    key_listener = pynput_keyboard.Listener(on_press=on_press, on_release=on_release)
+    key_listener.daemon = True
+    key_listener.start()
     log("🎤", f"Hotkey '{HOTKEY}' registered. Hold to record, release to transcribe.")
 
 
@@ -315,7 +327,8 @@ def on_quit(icon, item) -> None:
     """Clean up and exit."""
     log("👋", "Quitting …")
     icon.stop()
-    keyboard.unhook_all()
+    if key_listener is not None:
+        key_listener.stop()
     os._exit(0)
 
 
@@ -324,7 +337,7 @@ def setup_tray() -> None:
     global tray_icon
 
     menu = pystray.Menu(
-        pystray.MenuItem(f"Hotkey: {HOTKEY} (hold to talk)", None, enabled=False),
+        pystray.MenuItem(f"Hotkey: Option/Alt (hold to talk)", None, enabled=False),
         pystray.MenuItem(f"Model: {WHISPER_MODEL}", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", on_quit),

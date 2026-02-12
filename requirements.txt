@@ -1,7 +1,7 @@
 sounddevice
 numpy
 openai-whisper
-keyboard
+pynput
 pyautogui
 pystray
 Pillow
