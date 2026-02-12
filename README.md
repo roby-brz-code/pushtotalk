@@ -5,8 +5,8 @@ Hold a hotkey, speak, and have your speech typed into any focused text field. Ru
 ## Quick Start
 
 ```bash
-pip install -r requirements.txt
-python pushtotalk.py
+pip3 install -r requirements.txt
+python3 pushtotalk.py
 ```
 
 On first run Whisper will download the model weights (~140 MB for `base`). Subsequent starts are fast.
