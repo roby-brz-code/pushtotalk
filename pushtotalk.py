@@ -31,7 +31,7 @@ from pynput import keyboard as pynput_keyboard
 
 APP_NAME = "Push to Talk"
 HOTKEY = pynput_keyboard.Key.alt_l  # macOS Option key; change as desired
-WHISPER_MODEL = "base"      # tiny | base | small | medium | large
+WHISPER_MODEL = "base.en"   # tiny.en | base.en | small.en | medium.en | large
 SAMPLE_RATE = 16000         # 16 kHz mono
 LANGUAGE = "en"             # Set to None for auto-detect
 LOG_FILE = "transcription_log.txt"  # Set to None to disable logging
@@ -388,8 +388,9 @@ def _transcribe_and_type(frames: list, duration_s: float) -> None:
         segments, info = model.transcribe(
             audio,
             language=LANGUAGE,
-            beam_size=5,
-            vad_filter=True,  # skip silence for extra speed
+            beam_size=1,
+            vad_filter=True,
+            condition_on_previous_text=False,
         )
         text = " ".join(seg.text for seg in segments).strip()
         log("⏱️", f"Transcription took {time.time() - t0:.1f}s")
