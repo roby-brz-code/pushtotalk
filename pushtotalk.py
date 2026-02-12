@@ -383,6 +383,8 @@ def _transcribe_and_type(frames: list, duration_s: float) -> None:
             return
 
         # faster-whisper: returns a generator of segments + transcription info
+        log("🔄", f"Starting transcription ({len(audio) / SAMPLE_RATE:.1f}s of audio) …")
+        t0 = time.time()
         segments, info = model.transcribe(
             audio,
             language=LANGUAGE,
@@ -390,6 +392,7 @@ def _transcribe_and_type(frames: list, duration_s: float) -> None:
             vad_filter=True,  # skip silence for extra speed
         )
         text = " ".join(seg.text for seg in segments).strip()
+        log("⏱️", f"Transcription took {time.time() - t0:.1f}s")
 
         if not text:
             log("⚠️", "No speech detected.")
@@ -423,32 +426,29 @@ def _transcribe_and_type(frames: list, duration_s: float) -> None:
 
 
 def _type_text(text: str) -> None:
-    """Type text into the currently focused field. Falls back to clipboard paste for non-ASCII."""
+    """Paste text into the currently focused field via clipboard for instant output."""
     time.sleep(0.15)
     try:
-        if text.isascii():
-            pyautogui.typewrite(text, interval=0.01)
+        old_clipboard = None
+        try:
+            old_clipboard = pyperclip.paste()
+        except Exception:
+            pass
+
+        pyperclip.copy(text)
+        time.sleep(0.05)
+
+        if platform.system() == "Darwin":
+            pyautogui.hotkey("command", "v")
         else:
-            old_clipboard = None
+            pyautogui.hotkey("ctrl", "v")
+
+        if old_clipboard is not None:
+            time.sleep(0.3)
             try:
-                old_clipboard = pyperclip.paste()
+                pyperclip.copy(old_clipboard)
             except Exception:
                 pass
-
-            pyperclip.copy(text)
-            time.sleep(0.05)
-
-            if platform.system() == "Darwin":
-                pyautogui.hotkey("command", "v")
-            else:
-                pyautogui.hotkey("ctrl", "v")
-
-            if old_clipboard is not None:
-                time.sleep(0.3)
-                try:
-                    pyperclip.copy(old_clipboard)
-                except Exception:
-                    pass
     except Exception as exc:
         log("❌", f"Typing error: {exc}")
 
