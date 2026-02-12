@@ -756,12 +756,16 @@ def _transcribe_and_type(frames: list, duration_s: float) -> None:
         broadcast_event("transcription", entry)
 
         broadcast_event("pipeline", {"step": "done"})
-        set_state("idle")
-        _update_tray_icon(create_mic_icon)
 
         # Type the text into the focused field
         last_typed_text = text
         _type_text(text)
+
+        # Brief "success" state so the UI can flash green
+        set_state("success")
+        time.sleep(1.5)
+        set_state("idle")
+        _update_tray_icon(create_mic_icon)
 
     except Exception as exc:
         log("❌", f"Transcription error: {exc}")
@@ -785,7 +789,9 @@ def _transcribe_local(audio: np.ndarray) -> str:
 
 
 def _type_text(text: str) -> None:
-    """Paste text into the currently focused field via clipboard for instant output."""
+    """Paste text into the currently focused field via clipboard for instant output.
+    Automatically inserts a leading space so consecutive dictations don't run together.
+    """
     time.sleep(0.05)
     try:
         old_clipboard = None
@@ -794,7 +800,8 @@ def _type_text(text: str) -> None:
         except Exception:
             pass
 
-        pyperclip.copy(text)
+        # Insert a space before the text so consecutive dictations don't merge
+        pyperclip.copy(" " + text)
 
         if platform.system() == "Darwin":
             # Use native AppleScript for instant, reliable paste on macOS
