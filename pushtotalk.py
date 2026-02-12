@@ -45,6 +45,24 @@ from pynput import keyboard as pynput_keyboard
 # ─── Configuration ──────────────────────────────────────────────────────────────
 
 APP_NAME = "Push to Talk"
+CONFIG_DIR = pathlib.Path.home() / ".pushtotalk"
+ENV_FILE = CONFIG_DIR / ".env"
+
+# Load .env file from ~/.pushtotalk/.env if it exists
+def _load_env_file():
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key, value = key.strip(), value.strip().strip("'\"")
+                if key and value and key not in os.environ:
+                    os.environ[key] = value
+
+_load_env_file()
+
 HOTKEY = pynput_keyboard.Key.alt_l  # macOS Option key; change as desired
 WHISPER_MODEL = "base.en"   # tiny.en | base.en | small.en | medium.en | large
 SAMPLE_RATE = 16000         # 16 kHz mono
@@ -58,7 +76,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # Custom dictionary file path
-DICTIONARY_FILE = pathlib.Path.home() / ".pushtotalk" / "dictionary.txt"
+DICTIONARY_FILE = CONFIG_DIR / "dictionary.txt"
 
 # ─── Globals ────────────────────────────────────────────────────────────────────
 
