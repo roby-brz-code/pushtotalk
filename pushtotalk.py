@@ -50,6 +50,7 @@ ENV_FILE = CONFIG_DIR / ".env"
 
 # Load .env file from ~/.pushtotalk/.env if it exists
 def _load_env_file():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text().splitlines():
             line = line.strip()
@@ -68,7 +69,7 @@ WHISPER_MODEL = "base.en"   # tiny.en | base.en | small.en | medium.en | large
 SAMPLE_RATE = 16000         # 16 kHz mono
 LANGUAGE = "en"             # Set to None for auto-detect
 PRE_BUFFER_MS = 500         # Capture audio before key press to avoid cutting off first words
-LOG_FILE = "transcription_log.txt"  # Set to None to disable logging
+LOG_FILE = str(CONFIG_DIR / "transcription_log.txt")  # Set to None to disable logging
 WEB_PORT = 8528             # Web UI port
 
 # Cloud APIs (set via environment variables; leave unset for offline-only mode)
@@ -101,7 +102,14 @@ pre_buffer = collections.deque(maxlen=_PRE_BUFFER_CHUNKS)
 
 # ─── Flask app ──────────────────────────────────────────────────────────────────
 
-flask_app = Flask(__name__)
+# When bundled by PyInstaller, resources are extracted to a temp dir (_MEIPASS).
+# Point Flask at the bundled templates folder so it works in both dev and packaged mode.
+if getattr(sys, "frozen", False):
+    _bundle_dir = pathlib.Path(sys._MEIPASS)
+else:
+    _bundle_dir = pathlib.Path(__file__).resolve().parent
+
+flask_app = Flask(__name__, template_folder=str(_bundle_dir / "templates"))
 
 # Suppress Flask/werkzeug request logs
 werkzeug_log = logging.getLogger("werkzeug")
