@@ -160,15 +160,74 @@
             color: var(--text-dim);
         }
 
+        /* Pipeline steps */
+        .pipeline-steps {
+            display: none;
+            margin-top: 16px;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .pipeline-steps.visible {
+            display: flex;
+        }
+
+        .pipeline-step {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            color: var(--text-dim);
+            background: var(--surface-2);
+            padding: 4px 10px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .pipeline-step.active {
+            color: var(--amber);
+            border-color: var(--amber);
+        }
+
+        .pipeline-step.done {
+            color: var(--green);
+            border-color: var(--green);
+        }
+
+        .pipeline-step .step-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+
+        .pipeline-step.active .step-dot {
+            background: var(--amber);
+            animation: pulse-dot 1s ease-in-out infinite;
+        }
+
+        .pipeline-step.done .step-dot {
+            background: var(--green);
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
         /* Settings row */
         .settings-row {
             display: flex;
             gap: 12px;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
 
         .setting-card {
             flex: 1;
+            min-width: 90px;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -293,9 +352,36 @@
             border-radius: 8px;
         }
 
+        .history-engine {
+            background: var(--surface-2);
+            padding: 1px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+        }
+
         .history-text {
             font-size: 15px;
             line-height: 1.5;
+            white-space: pre-wrap;
+        }
+
+        .history-raw {
+            font-size: 12px;
+            color: var(--text-dim);
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border);
+            cursor: pointer;
+        }
+
+        .history-raw summary {
+            cursor: pointer;
+            font-style: italic;
+        }
+
+        .history-raw .raw-content {
+            margin-top: 4px;
+            font-style: normal;
         }
 
         .history-empty {
@@ -374,13 +460,27 @@
             </div>
             <div class="status-label" id="statusLabel">Ready</div>
             <div class="status-sublabel" id="statusSublabel">Hold <kbd style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px;">Option/Alt</kbd> to record</div>
+            <div class="pipeline-steps" id="pipelineSteps">
+                <div class="pipeline-step" id="stepASR">
+                    <span class="step-dot"></span>
+                    <span class="step-label">Transcribing</span>
+                </div>
+                <div class="pipeline-step" id="stepCleanup">
+                    <span class="step-dot"></span>
+                    <span class="step-label">AI Cleanup</span>
+                </div>
+            </div>
         </div>
 
         <!-- Settings -->
         <div class="settings-row">
             <div class="setting-card">
-                <div class="setting-label">Model</div>
-                <div class="setting-value" id="modelName">base</div>
+                <div class="setting-label">Engine</div>
+                <div class="setting-value" id="engineName">Local</div>
+            </div>
+            <div class="setting-card">
+                <div class="setting-label">Cleanup</div>
+                <div class="setting-value" id="cleanupName">Off</div>
             </div>
             <div class="setting-card">
                 <div class="setting-label">Hotkey</div>
@@ -416,19 +516,23 @@
     </div>
 
     <script>
-        const statusIndicator = document.getElementById("statusIndicator");
-        const statusLabel = document.getElementById("statusLabel");
-        const statusSublabel = document.getElementById("statusSublabel");
-        const connectionDot = document.getElementById("connectionDot");
-        const connectionText = document.getElementById("connectionText");
-        const micSelect = document.getElementById("micSelect");
-        const historyList = document.getElementById("historyList");
-        const historyEmpty = document.getElementById("historyEmpty");
-        const historyCount = document.getElementById("historyCount");
-        const modelName = document.getElementById("modelName");
-        const languageName = document.getElementById("languageName");
+        var statusIndicator = document.getElementById("statusIndicator");
+        var statusLabel = document.getElementById("statusLabel");
+        var statusSublabel = document.getElementById("statusSublabel");
+        var connectionDot = document.getElementById("connectionDot");
+        var connectionText = document.getElementById("connectionText");
+        var micSelect = document.getElementById("micSelect");
+        var historyList = document.getElementById("historyList");
+        var historyEmpty = document.getElementById("historyEmpty");
+        var historyCount = document.getElementById("historyCount");
+        var engineName = document.getElementById("engineName");
+        var cleanupName = document.getElementById("cleanupName");
+        var languageName = document.getElementById("languageName");
+        var pipelineSteps = document.getElementById("pipelineSteps");
+        var stepASR = document.getElementById("stepASR");
+        var stepCleanup = document.getElementById("stepCleanup");
 
-        let transcriptionCount = 0;
+        var transcriptionCount = 0;
 
         // ─── State updates ────────────────────────────────────────────────
 
@@ -438,12 +542,44 @@
             if (state === "idle") {
                 statusLabel.textContent = "Ready";
                 statusSublabel.innerHTML = 'Hold <kbd style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12px;">Option/Alt</kbd> to record';
+                pipelineSteps.classList.remove("visible");
+                resetPipeline();
             } else if (state === "recording") {
                 statusLabel.textContent = "Recording...";
                 statusSublabel.textContent = "Release the key to transcribe";
+                pipelineSteps.classList.remove("visible");
+                resetPipeline();
             } else if (state === "transcribing") {
-                statusLabel.textContent = "Transcribing...";
-                statusSublabel.textContent = "Processing your speech";
+                statusLabel.textContent = "Processing...";
+                statusSublabel.textContent = "Transcribing your speech";
+                pipelineSteps.classList.add("visible");
+            }
+        }
+
+        function resetPipeline() {
+            stepASR.className = "pipeline-step";
+            stepCleanup.className = "pipeline-step";
+            stepASR.querySelector(".step-label").textContent = "Transcribing";
+            stepCleanup.querySelector(".step-label").textContent = "AI Cleanup";
+        }
+
+        function updatePipeline(step, detail) {
+            if (step === "transcribing") {
+                stepASR.className = "pipeline-step active";
+                stepASR.querySelector(".step-label").textContent = detail || "Transcribing";
+                statusSublabel.textContent = "Transcribing via " + (detail || "...");
+            } else if (step === "cleaning") {
+                stepASR.className = "pipeline-step done";
+                stepCleanup.className = "pipeline-step active";
+                stepCleanup.querySelector(".step-label").textContent = detail || "AI Cleanup";
+                statusSublabel.textContent = "Cleaning up with " + (detail || "AI");
+            } else if (step === "command") {
+                stepASR.className = "pipeline-step done";
+                statusSublabel.textContent = "Voice command: " + (detail || "");
+            } else if (step === "done") {
+                stepASR.className = "pipeline-step done";
+                stepCleanup.className = "pipeline-step done";
+                statusSublabel.textContent = "Done!";
             }
         }
 
@@ -454,22 +590,41 @@
             transcriptionCount++;
             historyCount.textContent = transcriptionCount;
 
-            const item = document.createElement("div");
+            var item = document.createElement("div");
             item.className = "history-item";
-            item.innerHTML =
+
+            var metaHtml =
                 '<div class="history-meta">' +
-                    '<span class="history-time">' + entry.timestamp + '</span>' +
-                    '<span class="history-duration">' + entry.duration_s + 's</span>' +
+                    '<span class="history-time">' + escapeHtml(entry.timestamp) + '</span>' +
+                    '<span class="history-duration">' + entry.duration_s + 's</span>';
+
+            if (entry.engine) {
+                metaHtml += '<span class="history-engine">' + escapeHtml(entry.engine) + '</span>';
+            }
+
+            metaHtml +=
                     '<button class="copy-btn" onclick="copyText(this, ' + JSON.stringify(JSON.stringify(entry.text)) + ')">Copy</button>' +
-                '</div>' +
-                '<div class="history-text">' + escapeHtml(entry.text) + '</div>';
+                '</div>';
+
+            var textHtml = '<div class="history-text">' + escapeHtml(entry.text) + '</div>';
+
+            var rawHtml = "";
+            if (entry.raw_text) {
+                rawHtml =
+                    '<details class="history-raw">' +
+                        '<summary>Show raw transcript</summary>' +
+                        '<div class="raw-content">' + escapeHtml(entry.raw_text) + '</div>' +
+                    '</details>';
+            }
+
+            item.innerHTML = metaHtml + textHtml + rawHtml;
 
             // Insert at top
             historyList.insertBefore(item, historyList.firstChild);
         }
 
         function escapeHtml(text) {
-            const div = document.createElement("div");
+            var div = document.createElement("div");
             div.textContent = text;
             return div.innerHTML;
         }
@@ -504,7 +659,8 @@
                 .then(function(r) { return r.json(); })
                 .then(function(status) {
                     micSelect.value = status.device_index === null ? "null" : status.device_index;
-                    modelName.textContent = status.model;
+                    engineName.textContent = status.engine || "Local";
+                    cleanupName.textContent = status.cleanup || "Off";
                     languageName.textContent = status.language || "auto";
                 });
         }
@@ -546,6 +702,11 @@
             es.addEventListener("transcription", function(e) {
                 var data = JSON.parse(e.data);
                 addTranscription(data);
+            });
+
+            es.addEventListener("pipeline", function(e) {
+                var data = JSON.parse(e.data);
+                updatePipeline(data.step, data.detail);
             });
 
             es.addEventListener("device", function(e) {
