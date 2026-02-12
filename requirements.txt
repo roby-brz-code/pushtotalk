@@ -5,5 +5,4 @@ pynput
 pyautogui
 pystray
 Pillow
-scipy
 pyperclip

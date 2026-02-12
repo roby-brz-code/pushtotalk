@@ -9,12 +9,9 @@ import datetime
 import io
 import os
 import platform
-import struct
 import sys
-import tempfile
 import threading
 import time
-import wave
 
 import numpy as np
 import pyautogui
@@ -24,7 +21,6 @@ import sounddevice as sd
 import whisper
 from PIL import Image, ImageDraw
 from pynput import keyboard as pynput_keyboard
-from scipy.io.wavfile import write as wav_write
 
 # ─── Configuration ──────────────────────────────────────────────────────────────
 
@@ -266,18 +262,12 @@ def _transcribe_and_type(frames: list) -> None:
             log("⚠️", "Recording too short, skipping.")
             return
 
-        # Write to a temporary WAV file for Whisper
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        try:
-            wav_write(tmp.name, SAMPLE_RATE, (audio * 32767).astype(np.int16))
-            result = model.transcribe(
-                tmp.name,
-                language=LANGUAGE,
-                fp16=False,
-            )
-        finally:
-            tmp.close()
-            os.unlink(tmp.name)
+        # Pass numpy array directly to Whisper — avoids needing ffmpeg
+        result = model.transcribe(
+            audio,
+            language=LANGUAGE,
+            fp16=False,
+        )
 
         text = result.get("text", "").strip()
         if not text:
@@ -466,6 +456,13 @@ def main() -> None:
     print()
     log("🟢", "Ready! Hold the hotkey to record, release to transcribe.")
     log("ℹ️", "The app is running in the system tray. Right-click the icon to quit.")
+
+    if platform.system() == "Darwin":
+        print()
+        print("  ⚠️  macOS Accessibility Permission Required:")
+        print("     System Settings → Privacy & Security → Accessibility")
+        print("     Add and enable your terminal app (Terminal, iTerm2, etc.)")
+        print("     Then restart this app.")
     print()
 
     # Run tray icon on the main thread (required by some backends)
